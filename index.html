@@ -8,7 +8,7 @@
 
 		<link rel="stylesheet" href="dist/reset.css">
 		<link rel="stylesheet" href="dist/reveal.css">
-		<link rel="stylesheet" href="dist/theme/black.css">
+		<link rel="stylesheet" href="dist/theme/night.css">
 
 		<!-- Theme used for syntax highlighted code -->
 		<link rel="stylesheet" href="plugin/highlight/monokai.css">
@@ -16,8 +16,357 @@
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+              <section>
+                <h2>
+                  Multi-purpose embedded firmware 
+                </h2>
+              </section>
+              <section>
+                <section>
+                  <h2>
+                    Project background
+                  </h2>
+                </section>
+                <section>
+                  <p> What is MOSFET </p>
+                  <img style="width:600px"src="./media/mosfet.png">
+                  <aside class="notes">
+                    MOSFET's are everywhere, they're in your phone, basically any electronic device.</br>
+                    We wanted to create MOSFET's by ourselves, and we started thinking what we need to have.</br>
+                    Simplifying we need to inject Silicon with inpurites such as Borium or Phosphorous.</br>
+                    Also we need to create native Silicon Dioxide, by simply heating up Silicon substrate to ~1200*C</br>
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <section>
+                  <h3>
+                    Where it started ?
+                  </h3>
+                </section>
+                <section>
+                  Material design</br>
+                  <img src="./media/furnace_2.jpg">
+                  <aside class="notes">
+                    Tell about design basicly being pieces of sawed-off fireclay bricks, with welded metal cage.
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <section>
+                  <h2> Beginnings </h2>
+                  <aside class="notes">
+                    We began by basically taking raspberry pi pico wifi server examples, that could do 3 things.
+                  </aside>
+                </section>
+                <section>
+                  <p>Reading temperature</p>
+                  <pre><code data-line-numbers data-trim data-noescape>
+                  static inline int max31856_read_temperature(void)
+                  {
+                    uint8_t src[4], dst[4];
+                  
+                    gpio_put(FURNACE_SPI_CSN_PIN, 0);
+                    spi_write_read_blocking(MAX31856_SPI_INSTANCE, src, dst, len);
+                    gpio_put(FURNACE_SPI_CSN_PIN, 1);
+                  
+                    const int32_t  ltcbh = (int8_t) dst[1];
+                    const uint32_t ltcbm = dst[2], ltcbl = dst[3];
+                    int temperature = (((uint32_t) ltcbh) << 4)
+                                | (((uint32_t) ltcbm) >> 4);
+                  
+                    return temperature;
+                  }
+                  </code></pre>
+                  <aside class="notes">
+                    Explain SPI -> interface, value taken from hardware driver.
+                  </aside>
+                </section>
+                <section>
+                  <p>Getting pwm value from user</p>
+                  <pre><code data-line-numbers data-trim data-noescape>
+                  err_t tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
+                  {
+                    if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0) {
+                      reset_usb_boot(0,0);
+                    } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg_pwm) == 1) {
+                      if (arg_pwm > 15) {
+                        const char msg[] = "pwm argument too big!\n";
+                        const size_t msg_len = sizeof(msg)-1;
+                        tcp_server_send_data(ctx, tpcb, msg, msg_len);
+                      } else {
+                        ctx->pwm_level = arg_pwm;
+                      }
+                    }
+                    return ERR_OK;
+                  }
+                  </code></pre>
+                  <aside class="notes">
+                    Simply receiving and checking received string.
+                  </aside>
+                </section>
+                <section>
+                  <p>Setting pwm to desired value</p>
+                  <pre><code data-line-numbers data-trim data-noescape>
+                  static inline int set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
+                  {
+                    if (new_pwm > MAX_PWM)
+                      return 1;
+
+                    ctx->pwm_level = new_pwm;
+                    pwm_set_gpio_level(FURNACE_FIRE_PIN, new_pwm);
+                  
+                    if (new_pwm == MAX_PWM) {
+                      pwm_set_enabled(FURNACE_FIRE_PWM_SLICE, false);
+                    } else {
+                      pwm_set_enabled(FURNACE_FIRE_PWM_SLICE, true);
+                    }
+                  
+                    return 0;
+                  }
+                  </code></pre>
+                  <aside class="notes">
+                    Explain PWM, what is it connected to, and why it is better than GPIO ( can be steered ).
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <section>
+                  <h2>Basic code architecture</h2>
+                  <h4>Little "scheduler"</h4>
+                  <aside class="notes">
+                    Explain what a scheduler is ( linux uses it, by far more advanced algorithm )
+                  </aside>
+                </section>
+                <section>
+                  <p>Main work loop</p>
+                  <pre><code data-trim data-line-numbers>
+                  int main_work_loop(void)
+                  {
+                    furnace_context_t* ctx;
+                    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+                  
+                    while (1) {
+                      const bool deadline_met = get_absolute_time() > ctx->update_deadline;
+                  
+                      do_thermocouple_work(ctx, deadline_met);
+                      do_tcp_work(ctx, deadline_met);
+                  
+                      if (deadline_met)
+                        ctx->update_deadline = make_timeout_time_ms(1000);
+                    }
+                    return 0;
+                  }
+                  </code></pre>
+                  <aside class="notes">
+                    Basically an infinite loop which checks if it should do work, and does it or not.
+                  </aside>
+                </section>
+                <section>
+                  <p>Example task</p>
+                  <pre><code data-trim data-line-numbers>
+                  void do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
+                  {
+                    if (!deadline_met)
+                      return;
+                  
+                    const bool rdy = gpio_get(FURNACE_MAX31856_RDY);
+                    if (rdy)
+                      DEBUG_printf("RDY: %d\n", (int) rdy);
+                  
+                    ctx->cur_temp = max31856_read_temperature();
+                    DEBUG_printf("cold: %u\n", max31856_read_cold_junction());
+                  }
+                  </code></pre>
+                  <aside class="notes">
+                    basically checking if deadline is met, then returning or doing the task work.
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <section>
+                  <h2>First problems</h2>
+                </section>
+                <section>
+                  <h2>
+                    Steering problems
+                  </h2>
+                  <p>
+                    - The pwm value had to be remembered, no way to read the value</br>
+                    - Steering pwm by hand was annoying</br>
+                  </p>
+                </section>
+                <section>
+                  <h2>PID</h2>
+                  <h4>
+                    Seemingly good solution
+                  </h4>
+                  <img style="width:600px;"src="./media/pid_vis.png">
+                  <aside class="notes">
+                    Explain PID -> pwm value based on past, present and predicted value. </br>
+                    Due to high inertia and unknown constants at the beginning not suitable for us
+                  </aside>
+                </section>
+                <section>
+                  <h3>
+                    Proprietary solution
+                  </h3>
+                  <h4>
+                    auto-pilot
+                  </h4>
+                  <pre><code data-trim data-line-numbers data-noescape>
+                  static void
+                  do_pilot_work(furnace_context_t *ctx)
+                  {
+                    const int min_increase_rate = 1;
+                    const int diff = ctx->cur_temp - ctx->pilot.last_temp;
+                    const int sign = sgn(ctx->cur_temp, ctx->pilot.des_temp);
+                    unsigned pwm = ctx->pwm_level;
+                  
+                    ctx->pilot.last_temp = ctx->cur_temp;
+                    ctx->pilot.pilot_deadline = make_timeout_time_ms(CONFIG_FURNACE_DEADLINE_MS);
+                  
+                    if(sign*diff <= min_increase_rate)
+                      pwm += sign;
+                  
+                    set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
+                  }
+                  </code></pre>
+                  <aside class="notes">
+                    Basically checking if deadline is met ( compile-time value )
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <section>
+                  <h2>
+                    Device configuration
+                  </h2>
+                </section>
+                <section>
+                  <p>
+                    .config file
+                  </p>
+                  <pre><code data-line-numbers data-trim data-noescape>
+                    CONFIG_THERMO=ktype
+                    CONFIG_MAGNETRON=0
+                    CONFIG_HOSTNAME="pico_furnace"
+                    CONFIG_WATER=1
+                    CONFIG_FURNACE_FIRE_PIN=21
+                    CONFIG_FURNACE_DEADLINE_MS=21000
+                    CONFIG_MAX_PWM=50
+                    CONFIG_SHUTTER=0
+                    CONFIG_AUTO=pilot
+                    CONFIG_STIRRER=0
+                  </code></pre>
+                  <aside class="notes">
+                    Specifying compile-time variables which are used to either use or not part of the code.</br>
+                    Also used to specify variables without having to hardcode them.</br>
+                  </aside>
+                </section>
+                <section>
+                  <p>
+                    Example usage
+                  </p>
+                  <pre><code data-line-numbers data-trim data-noescape>
+                  #if CONFIG_THERMO
+                      do_thermocouple_work(ctx, deadline_met);
+                  #endif
+                      do_tcp_work(ctx, deadline_met);
+                      do_stdio_work(ctx, deadline_met);
+                  #if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
+                      do_pilot_work(ctx);
+                  #endif
+                  </code></pre>
+                  <aside class="notes">
+                    if condition is true the code inside #if .... #endif is included in the code, if not it is not.
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <section>
+                  <h2>
+                    Another problems
+                  </h2>
+                </section>
+                <section>
+                  <h3>
+                    Low oxygen levels inside furnace
+                  </h3>
+                  <p>
+                    Oxide was growing too slow
+                  </p>
+                  <aside class="notes">
+                    Silicon dioxide is O<sup>2</sup> + Si, so more oxygen = faster growing.</br>
+                  </aside>
+                </section>
+                <section>
+                  <h2>
+                    Need for heat
+                  </h2>
+                </section>
+                <section>
+                  <h3>
+                    Problem:
+                  </h3>
+                  <h4>
+                    Temperature for other necessary operations was not stable enough, resolution was too high to accurately steer lower temperatures.
+                  </h4>
+                </section>
+                <section>
+                  <h3>
+                    Solution:
+                  </h3>
+                  <h4>
+                    Another temperature sensor, which handles another temperature values.
+                  </h4>
+                </section>
+                <section>
+                  <h3>
+                    Handling different hardware drivers
+                  </h3>
+                  <pre><code data-line-numbers data-trim data-noescape>
+                  #if CONFIG_THERMO == CONFIG_THERMO_PT100
+                    #include "max31865.h"
+                  #elif CONFIG_THERMO == CONFIG_THERMO_KTYPE
+                    #include "max31856.h"
+                  #elif CONFIG_THERMO >= 1
+                      #error "Invalid CONFIG_THERMO value"
+                  #endif
+                  </code></pre>
+                  <aside class="notes">
+                    Basically same API for different drivers, less mess in the main code.
+                  </aside>
+                </section>
+              </section>
+              <section>
+                <h2>Other features</h2>
+                <ul>
+                  <li>
+                    magnetron
+                  </li>
+                  <li>
+                    mapper
+                  </li>
+                  <li>
+                    shutter
+                  </li>
+                  <li>
+                    stirrer
+                  </li>
+                </ul>
+              </section>
+              <section>
+                <h2>
+                  Thanks for attention ! 
+                </h2>
+                <p>
+                  Kornel Uriasz 
+                </p>
+                <p>
+                  SKN MOS
+                </p>
+              </section>
 			</div>
 		</div>
 
