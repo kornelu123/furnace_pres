@@ -12,6 +12,16 @@
 
 		<!-- Theme used for syntax highlighted code -->
 		<link rel="stylesheet" href="plugin/highlight/monokai.css">
+        <style>
+          .reveal {
+            background:url('media/background_wyklad.jpg');
+            background:url('media/background_wyklad.jpg') no-repeat center center fixed;
+            -webkit-background-size: cover;
+            -moz-background-size: cover;
+            -o-background-size: cover;
+            background-size: cover;
+          }
+        </style>
 	</head>
 	<body>
 		<div class="reveal">
@@ -37,6 +47,10 @@
                     Also we need to create native Silicon Dioxide, by simply heating up Silicon substrate to ~1200*C</br>
                   </aside>
                 </section>
+                <section>
+                  <p>Our MOSFET</p>
+                  <img style="width:400px;"src="./media/mosfet_working.jpg">
+                </section>
               </section>
               <section>
                 <section>
@@ -60,15 +74,15 @@
                   </aside>
                 </section>
                 <section>
-                  <p>Reading temperature</p>
+                  <p>reading temperature</p>
                   <pre><code data-line-numbers data-trim data-noescape>
                   static inline int max31856_read_temperature(void)
                   {
                     uint8_t src[4], dst[4];
                   
-                    gpio_put(FURNACE_SPI_CSN_PIN, 0);
-                    spi_write_read_blocking(MAX31856_SPI_INSTANCE, src, dst, len);
-                    gpio_put(FURNACE_SPI_CSN_PIN, 1);
+                    gpio_put(furnace_spi_csn_pin, 0);
+                    spi_write_read_blocking(max31856_spi_instance, src, dst, len);
+                    gpio_put(furnace_spi_csn_pin, 1);
                   
                     const int32_t  ltcbh = (int8_t) dst[1];
                     const uint32_t ltcbm = dst[2], ltcbl = dst[3];
@@ -79,7 +93,22 @@
                   }
                   </code></pre>
                   <aside class="notes">
-                    Explain SPI -> interface, value taken from hardware driver.
+                    explain spi -> interface, value taken from hardware driver.
+                  </aside>
+                </section>
+                <section>
+                  <p>SPI interface </p>
+                  <img style="width:600px;"src="./media/spi_trans.jpg">
+                  <aside class="notes">
+                    explain spi -> interface, value taken from hardware driver.
+                  </aside>
+                </section>
+                <section>
+                  <p>Thermocouple and driver</p>
+                  <img style="width:600px;"src="./media/termopara.png">
+                  <img style="width:300px;"src="./media/driver.png">
+                  <aside class="notes">
+                    explain spi -> interface, value taken from hardware driver.
                   </aside>
                 </section>
                 <section>
@@ -104,6 +133,14 @@
                   <aside class="notes">
                     Simply receiving and checking received string.
                   </aside>
+                </section>
+                <section>
+                  <p>PWM -> Pulse Width Modulation</p>
+                  <img style="width:600px;"src="./media/pwm.jpg">
+                </section>
+                <section>
+                  <p>PCB -> printed circuit board</p>
+                  <img style="width:600px;"src="./media/pcb_nerp.jpg">
                 </section>
                 <section>
                   <p>Setting pwm to desired value</p>
@@ -262,6 +299,9 @@
                   <aside class="notes">
                     Specifying compile-time variables which are used to either use or not part of the code.</br>
                     Also used to specify variables without having to hardcode them.</br>
+                    ktype => thermocouple type</br>
+                    water => do we use water pump or no </br>
+                    hostname => what's the hostname </br>
                   </aside>
                 </section>
                 <section>
@@ -340,21 +380,47 @@
                 </section>
               </section>
               <section>
-                <h2>Other features</h2>
-                <ul>
-                  <li>
-                    magnetron
-                  </li>
-                  <li>
-                    mapper
-                  </li>
-                  <li>
-                    shutter
-                  </li>
-                  <li>
-                    stirrer
-                  </li>
-                </ul>
+                <section>
+                  <h2>Other features</h2>
+                  <ul>
+                    <li>
+                      magnetron
+                    </li>
+                    <li>
+                      mapper
+                    </li>
+                    <li>
+                      shutter
+                    </li>
+                    <li>
+                      stirrer
+                    </li>
+                  </ul>
+                </section>
+                <section>
+                  <h2>
+                    Magnetron
+                  </h2>
+                  <img style="width:250px;"src="./media/magnetron.jpg">
+                </section>
+                <section>
+                  <h2>
+                    Shutter
+                  </h2>
+                  <img style="width:600px;"src="./media/photolitho.jpg">
+                </section>
+                <section>
+                  <h2>
+                    Stirrer v1
+                  </h2>
+                  <video data-autoplay style="width:300px;" src="./media/stirrer_v1.mov"></video>
+                </section>
+                <section>
+                  <h2>
+                    Stirrer v2
+                  </h2>
+                  <video data-autoplay src="./media/stirrer_v2.mov"></video>
+                </section>
               </section>
               <section>
                 <h2>
